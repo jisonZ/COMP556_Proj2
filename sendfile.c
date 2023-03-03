@@ -76,8 +76,30 @@ int main(int argc, char** argv) {
         perror("failed to allocated buffer");
         abort();
     }
+    int bufferSize;
 
     /* ----- send file ----- */
-    
+    fd_set read_set;
+    int max;
+    timeval time_out;
+    int select_retval;
+
+    FILE* fp;
+    fp = fopen(fname, "r");
+
+    bool EOF = false;
+    while (!EOF)
+    {
+        /* read from file to buffer */
+        fgets(buffer, 255, (FILE*)fp);
+
+        /* we only need to listen from the sockets */
+        FD_ZERO(&read_set);
+        FD_SET(sock, &read_set);
+        max = sock;
+
+        select_retval = select(max+1, &read_set, NULL, NULL, &timeout);
+
+    }
 
 }
