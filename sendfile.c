@@ -103,7 +103,8 @@ int main(int argc, char** argv) {
             EOF = true;
         }
         /* implement bufferSize/PKT_SIZE, EOF signal*/
-        
+        bufferSize /= PKT_SIZE;
+
         /* initialize window */
         int buff_pos = 0;
         packet* window = (packet*) malloc(WINDOW_LEN * sizeof(packet));
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
             }
 
             /* detect if all item been sent*/
-            if (window[0].buffPos >= bufferSize) {
+            if (window[0].buffPos > bufferSize) {
                 break;
             }
 
@@ -190,6 +191,9 @@ int main(int argc, char** argv) {
 
                 if (!window[i].ack || current_time - window[i].sendTime > TIME_OUT) {
                     /* fully send message */
+                    if (EOF && window[i].buffPos == bufferSize - 1) {
+                        /* send EOF in packet */
+                    }
                 }
             }
         }
