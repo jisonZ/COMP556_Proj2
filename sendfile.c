@@ -12,10 +12,11 @@
 #define MAX_BUFF 1000
 #define PKT_SIZE 1024
 #define WINDOW_LEN 5
-
+#define TIME_OUT 10
 struct packet 
 {
     int seqNum;
+    int buffPos;
     bool ack;
     bool send;
     timeval sendTime;
@@ -32,7 +33,7 @@ int main(int argc, char** argv) {
         serverPort = atoi(argv[1]);
         fname = argv[2];
     } else {
-        perror("usage: ./sendfile <server address> <server port> <window size> <file name>\n");
+        perror("usage: ./sendfile <server address> <server port> <file name>\n");
         abort();
     }
 
@@ -76,30 +77,122 @@ int main(int argc, char** argv) {
         perror("failed to allocated buffer");
         abort();
     }
-    int bufferSize;
 
     /* ----- send file ----- */
     fd_set read_set;
+    fd_set write_set;
     int max;
+
     timeval time_out;
+    time_out.tv_usec = 1e5;
+    time_out.tv_sec = 0;
+
     int select_retval;
 
     FILE* fp;
     fp = fopen(fname, "r");
 
+    int seq_num = 0;
+
     bool EOF = false;
     while (!EOF)
     {
         /* read from file to buffer */
-        fgets(buffer, 255, (FILE*)fp);
+        int bufferSize = fread(buffer, 1, MAX_BUFF*PKT_SIZE, fp);
+        if (bufferSize < MAX_BUFF*PKT_SIZE) {
+            EOF = true;
+        }
+        /* implement bufferSize/PKT_SIZE, EOF signal*/
+        
+        /* initialize window */
+        int buff_pos = 0;
+        packet* window = (packet*) malloc(WINDOW_LEN * sizeof(packet));
+        if (window == NULL) {
+            perror("fail to allocate window buffer\n");
+            abort();
+        }
+        for (int i = 0; i < WINDOW_LEN; ++i) {
+            struct packet p;
+            p.seqNum = seq_num;
+            p.buffPos = buff_pos;
+            p.ack = false;
+            p.send = false;
+            window[i] = p;
+            seq_num++;
+            buff_pos++;
+        }
+ 
+         /* send buffer */
+        while (true) 
+        {
+            /* we only need to listen from the sockets */
+            FD_ZERO(&read_set);
+            FD_ZERO(&wirte_set);
 
-        /* we only need to listen from the sockets */
-        FD_ZERO(&read_set);
-        FD_SET(sock, &read_set);
-        max = sock;
+            FD_SET(sock, &read_set);
+            FD_SET(sock, &write_set);
+            max = sock;
 
-        select_retval = select(max+1, &read_set, NULL, NULL, &timeout);
+            /* select() for ACK */
+            select_retval = select(max+1, &read_set, &write_set, NULL, &timeout);
+            if (select_retval < 0) {
+                perror("select failed");
+                abort();
+            }
+            if (select_retval > 0) {
+                if (FD_ISSET(sock, &read_set)) {
+                    /* take ACK */
+                }
+                if (FD_ISSET(sock, &write_set)) {
+                    /* continue unsuccessful write */
+                    /* might be too complicated to implement,
+                    alternative is to wait till all of the message is sent */
+                }
+            }
 
+            /* detect window shift */
+            int shift = 0;
+            for (int i = 0; i < WINDOW_LEN; ++i) {
+                if (window[i].ack) {
+                    shift++;
+                } else {
+                    break;
+                }
+            }
+            if (shift != 0) {
+                /* move window */
+                for (int i = 0; i < WINDOW_LEN-shift; ++i) {
+                    window[i] = window[i+shift];
+                }
+
+                /* reset rest of window */
+                for (int i = WINDOW_LEN-shift; i < WINDOW_LEN; ++i) {
+                    struct packet p;
+                    p.seqNum = seq_num;
+                    p.buffPos = buff_pos;
+                    p.ack = false;
+                    p.send = false;
+                    window[i] = p;
+                    seq_num++;
+                    buff_pos++;
+                }
+            }
+
+            /* detect if all item been sent*/
+            if (window[0].buffPos >= bufferSize) {
+                break;
+            }
+
+            /* send frames */
+            for (int i = 0; i < WINDOW_LEN; ++i) {
+                struct timeval current_time;
+                gettimeofday(&current_time, NULL);
+
+                if (!window[i].ack || current_time - window[i].sendTime > TIME_OUT) {
+                    /* fully send message */
+                }
+            }
+        }
     }
 
 }
