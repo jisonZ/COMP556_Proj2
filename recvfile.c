@@ -37,7 +37,7 @@ int main(int argc, char **argv)
     buf = (char *)malloc(BUF_LEN);
 
     /* create a server socket to listen for TCP connection requests */
-    if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+    if ((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
     {
         perror("opening TCP socket");
         abort();
@@ -60,13 +60,6 @@ int main(int argc, char **argv)
     if (bind(sock, (struct sockaddr *)&sin, sizeof(sin)) < 0)
     {
         perror("binding socket to address");
-        abort();
-    }
-
-    /* put the server socket in listen mode */
-    if (listen(sock, BACKLOG) < 0)
-    {
-        perror("listen on socket failed");
         abort();
     }
 

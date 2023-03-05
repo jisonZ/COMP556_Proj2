@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
     
     /* ----- initialize and connect socket ------ */
     int sock;
-    if ((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_TCP)) < 0)
+    if ((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
     {
         perror("Error opening UDP socket");
         abort();
@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = server_addr;
     sin.sin_port = htons(server_port);
+
     /* connect to the server */
     if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) < 0)
     {
@@ -74,7 +75,19 @@ int main(int argc, char** argv) {
     /* ----- create buffer ----- */
     char* buffer = (char *)malloc(MAX_BUFF*PKT_SIZE);
     if (!buffer) {
-        perror("failed to allocated buffer");
+        perror("failed to allocate file buffer\n");
+        abort();
+    }
+    int RECV_LEN = 12;
+    char* recvbuffer = (char *)malloc(RECV_LEN);
+    if (!recvbuffer) {
+        perror("failed to allocate recv buffer\n");
+        abort();
+    }
+    int SEND_LEN = PKT_SIZE+16;
+    char* sendbuffer = (char *)malloc(SEND_LEN);
+    if (!sendbuffer) {
+        perror("failed to allocate send buffer\n");
         abort();
     }
 
@@ -95,6 +108,7 @@ int main(int argc, char** argv) {
     int seq_num = 0;
 
     bool EOF = false;
+
     while (!EOF)
     {
         /* read from file to buffer */
@@ -124,18 +138,18 @@ int main(int argc, char** argv) {
         }
  
          /* send buffer */
-        while (true) 
+        while (1) 
         {
             /* we only need to listen from the sockets */
             FD_ZERO(&read_set);
-            FD_ZERO(&wirte_set);
+            // FD_ZERO(&wirte_set);
 
             FD_SET(sock, &read_set);
-            FD_SET(sock, &write_set);
+            // FD_SET(sock, &write_set);
             max = sock;
 
             /* select() for ACK */
-            select_retval = select(max+1, &read_set, &write_set, NULL, &timeout);
+            select_retval = select(max+1, &read_set, NULL, NULL, &timeout);
             if (select_retval < 0) {
                 perror("select failed");
                 abort();
@@ -143,12 +157,14 @@ int main(int argc, char** argv) {
             if (select_retval > 0) {
                 if (FD_ISSET(sock, &read_set)) {
                     /* take ACK */
+                    int recvLen = recv(sock, recvbuffer, RECV_LEN, 0);
+
                 }
-                if (FD_ISSET(sock, &write_set)) {
-                    /* continue unsuccessful write */
-                    /* might be too complicated to implement,
-                    alternative is to wait till all of the message is sent */
-                }
+                // if (FD_ISSET(sock, &write_set)) {
+                //     /* continue unsuccessful write */
+                //     /* might be too complicated to implement,
+                //     alternative is to wait till all of the message is sent */
+                // }
             }
 
             /* detect window shift */

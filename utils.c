@@ -1,8 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <arpa/inet.h>
 
-char checksum(char *frame, int count) {
-    u_long sum = 0;
+unsigned short checksum(char *frame, int count) {
+    unsigned long sum = 0;
     while (count--) {
         sum += *frame++;
         if (sum & 0xFFFF0000) {
@@ -15,14 +16,24 @@ char checksum(char *frame, int count) {
 
 void encode_ACK() {
     /* 
-    int size;
     int seqNum;
+    int error;
+    int eof;
     int checkSum;
     */
 }
 
-void decode_ACK() {
-
+int decode_ACK(char* buf, int len) {
+    /* TODO: is detecting length correct?*/
+    /* Reasoning: UDP itself is used for tranfering long msgs, 
+    therefore we dont care */
+    /* return -1: not enough byte*/
+    if (len != 12) return -1;
+    int seqNum = ntohl(*(int*)buf);
+    int error = ntohl(*((int*)buf+1));
+    int eof = ntohl(*((int*)buf+2));
+    int checkSum =  ;
+    if ()
 }
 
 void encode_send() {
