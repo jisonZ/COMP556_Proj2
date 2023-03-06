@@ -166,6 +166,8 @@ int main(int argc, char **argv)
         } else {
             // duplicate packet
             printf("[recv data] %d %u IGNORED\n", total_data, data_size);
+
+            // TODO: what about out-of-order packet?
         }
         // send ACK
         send_ack(seq_num, sock, addr);
