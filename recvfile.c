@@ -12,18 +12,6 @@
 #define MAX_PACKET_SIZE 1024
 #define WINDOW_SIZE 5
 
-typedef struct
-{
-    int seq_num;
-    int length;
-    char data[MAX_PACKET_SIZE];
-} packet;
-
-// TODO: send ack
-void send_ack(int seq_num, int sock, struct sockaddr_in addr) {
-
-}
-
 int main(int argc, char **argv)
 {
     struct sockaddr_in sin, addr;
@@ -82,100 +70,70 @@ int main(int argc, char **argv)
     time_out.tv_sec = 1;
     time_out.tv_usec = 0;
 
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&time_out, sizeof time_out);
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&time_out, sizeof time_out);
 
-    int packet_size; // TODO: packet size=??
-    int expected_seq_num = 0;
-    int window_base = 0;
-    int window_end = WINDOW_SIZE - 1;
-    int acked[WINDOW_SIZE];
-    memset(acked, 0, sizeof(acked));
-
-    char ack[2];
-    ack[0] = 1;
-    int ack_size;  // TODO: ack size =??
-    char* ack_packet = malloc(ack_size);
-    char* recv_buffer;
-    char last_seq_num = (char) 1;
-    int total_data = 0;
     FILE *fp;
     long file_size;  // TODO: extract file size?
 
-    while (1) {
-        recv_buffer = (char*) malloc(packet_size);
-        int count = recvfrom(sock, recv_buffer, packet_size, 0, (struct sockaddr*)&addr, &addr_len);
-        if (count < 0)
-            break;
+    char ack_buffer[12];
+    char *recv_buffer;
+    recv_buffer = (char *)malloc(PKT_SIZE);
+    int seq_num = 1;
+    int msg_size;
+    char *msg = malloc(MAX_MSG_SIZE);
+    int total_data_size = 0;
 
-        // TODO: checksum
-        unsigned int checksum;
-        unsigned int checksum_sent;
-        // if checksum mismatch -> corrupt packet
-        if (checksum != checksum_sent) {
+    while (1)
+    {
+        int recv_packet_size = recvfrom(sock, recv_buffer, PKT_SIZE, 0, (struct sockaddr *)&addr, &addr_len);
+        if (recv_packet_size < 0)
+        {
+            break;
+        }
+
+        int eof = decode_send(recv_buffer, recv_packet_size, &seq_num, msg, &msg_size);
+
+        // corrupt packet
+        if (eof == -1)
+        {
             printf("[recv corrupt packet]\n");
             free(recv_buffer);
-            continue;
-        }
 
-        // extract sequence number
-        int seq_num = (int)(recv_buffer[1]);
-
-        int data_size;  // TODO: data_size
-
-        if (seq_num < expected_seq_num || seq_num > expected_seq_num + WINDOW_SIZE - 1) {
-            // out of window
-            printf("[recv data] %d %u IGNORED\n", total_data, data_size);
-            // send duplicate ACK
-            send_ack(last_seq_num, sock, addr);
-            free(recv_buffer);
-            continue;
-        }
-
-        int window_index = seq_num - expected_seq_num;
-
-        if (acked[window_index] == 0) {
-            // valid packet received
-            printf("[recv data] %d %u ACCEPTED(in-order)\n", total_data, data_size);
-
-            char file_path[256];  
-            
-            // TODO: extract file_path
-
-            fp = fopen(file_path, 'w');
-
-            // write to file
-            fwrite(recv_buffer, 1, data_size, fp);
-            total_data += data_size;
-
-            acked[window_index] = 1;
-
-            // slide window
-            while (acked[0] == 1) {
-                window_base++;
-                window_end++;
-                expected_seq_num++;
-
-                // mark packet as unack'ed
-                acked[0] = 0;
-
-                // Check if file transfer is complete
-                if (total_data == file_size) {
-                    break;
-                }
+            // still send ack, set error flag
+            encode_ACK(seq_num, 1, ack_buffer);
+            int send_packet_size = sendto(sock, ack_buffer, 12, 0, (const struct sockaddr *)&addr, sizeof(addr));
+            if (send_packet_size < 0)
+            {
+                printf("send error \n");
+                abort();
             }
-        } else {
-            // duplicate packet
-            printf("[recv data] %d %u IGNORED\n", total_data, data_size);
-
-            // TODO: what about out-of-order packet?
+            continue;
         }
-        // send ACK
-        send_ack(seq_num, sock, addr);
 
-        if (total_data == file_size) {
-            break;
+        int recv_seq_num = recv_buffer[??];
+        msg_size = ? ? ;
+
+        if (recv_seq_num == seq_num + 1)  
+        { // in order packet
+            printf("[recv data] %d %d ACCEPTED(in-order)\n", total_data_size, msg_size);
+            seq_num = recv_seq_num;
+            total_data_size += msg_size;
+        } // duplicate packet
+        else if (recv_seq_num == seq_num)
+        {   
+            printf("[recv data] %d %d IGNORED\n", total_data_size, msg_size);
+            free(recv_buffer);
+            seq_num = recv_seq_num;
+
+        } // out of order packet
+        else
+        {
+            printf("[recv data] %d %d ACCEPTED(out-of-order)\n", total_data_size, msg_size);
+            // TODO: handle out of order packet
         }
-    }
+
+        
+
     fclose(fp);
     free(recv_buffer);
     printf("[completed]\n");
