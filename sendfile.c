@@ -8,35 +8,61 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/time.h>
+
 #include "utils.c"
 
 struct packet
 {
     int seqNum;
     int buffPos;
-    bool ack;
-    bool send;
+    int ack;
+    int send;
     timeval sendTime;
 };
 
 int main(int argc, char **argv)
 {
 
-    char *serverAddr = NULL;
-    unsigned short serverPort;
-    char *fname = NULL;
+    char *recv_host = NULL;
+    char *recv_port = NULL;
+    char *subdir = NULL;
+    char *filename = NULL;
+    char whole_filename[100]
 
-    if (argc == 3)
-    {
-        serverAddr = argv[0];
-        serverPort = atoi(argv[1]);
-        fname = argv[2];
+    int opt;
+    while ((opt = getopt(argc, argv, "r:f:")) != -1) {
+        switch (opt) {
+            case 'r':
+                // Extract the receiver host and port from the -r argument
+                recv_host = strtok(optarg, ":");
+                recv_port = strtok(NULL, ":");
+                break;
+            case 'f':
+                // Extract the filename and subdirectory from the -f argument
+                subdir = strtok(optarg, "/");
+                filename = strtok(NULL, "/");
+                break;
+            default:
+                printf("Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>\n");
+                return 1;
+        }
     }
-    else
-    {
-        perror("usage: ./sendfile <server address> <server port> <file name>\n");
-        abort();
+
+    // Verify that all required arguments were provided
+    if (recv_host == NULL || recv_port == NULL || subdir == NULL || filename == NULL) {
+        printf("Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>\n");
+        return 1;
     }
+
+    // Print out the parsed arguments
+    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\n", recv_host, recv_port, subdir, filename);
+
+
+
+ 
+
+
+
 
     /* ------ identifying the server ------ */
     unsigned int server_addr;
@@ -75,7 +101,7 @@ int main(int argc, char **argv)
 
     /* ----- create buffer ----- */
     char *filebuffer = (char *)malloc(MAX_BUFF * PKT_SIZE);
-    if (!buffer)
+    if (!filebuffer)
     {
         perror("failed to allocate file buffer\n");
         abort();
@@ -101,6 +127,15 @@ int main(int argc, char **argv)
         perror("failed to allocate msg buffer\n");
         abort();
     }
+
+    packet *window = (packet *)malloc(WINDOW_LEN * sizeof(packet));
+    if (!window)
+    {
+        perror("fail to allocate window buffer\n");
+        abort();
+    }
+
+
     /* ----- send file ----- */
     fd_set read_set;
     fd_set write_set;
@@ -113,42 +148,43 @@ int main(int argc, char **argv)
     int select_retval;
 
     FILE *fp;
-    fp = fopen(fname, "r");
+    fp = fopen(whole_filename, "r");
 
     int seq_num = 0;
 
     bool EOF = false;
 
+    int buff_pos = 0;
+        
+    for (int i = 0; i < WINDOW_LEN; ++i)
+    {
+        struct packet p;
+        p.seqNum = seq_num;
+        p.buffPos = buff_pos;
+        p.ack = false;
+        p.send = false;
+        window[i] = p;
+        seq_num++;
+        buff_pos++;
+    }
+    
     while (!EOF)
     {
         /* read from file to buffer */
         int bufferSize = fread(filebuffer, 1, MAX_BUFF * PKT_SIZE, fp);
+
+        // Is End of file?
         if (bufferSize < MAX_BUFF * PKT_SIZE)
         {
             EOF = true;
+        }else{
+            fseek(fp, bufferSize, SEEK_CUR);
         }
         /* implement bufferSize/PKT_SIZE, EOF signal*/
         int bufferCount = bufferSize /= PKT_SIZE;
 
         /* initialize window */
-        int buff_pos = 0;
-        packet *window = (packet *)malloc(WINDOW_LEN * sizeof(packet));
-        if (window == NULL)
-        {
-            perror("fail to allocate window buffer\n");
-            abort();
-        }
-        for (int i = 0; i < WINDOW_LEN; ++i)
-        {
-            struct packet p;
-            p.seqNum = seq_num;
-            p.buffPos = buff_pos;
-            p.ack = false;
-            p.send = false;
-            window[i] = p;
-            seq_num++;
-            buff_pos++;
-        }
+        
 
         /* send buffer */
         while (1)
@@ -162,7 +198,7 @@ int main(int argc, char **argv)
             max = sock;
 
             /* select() for ACK */
-            select_retval = select(max + 1, &read_set, NULL, NULL, &timeout);
+            select_retval = select(max + 1, &read_set, NULL, NULL, &time_out);
             if (select_retval < 0)
             {
                 perror("select failed");
@@ -204,7 +240,7 @@ int main(int argc, char **argv)
                 {
                     if (window[i].ack)
                     {
-                        shift++;
+                        ++shift;
                     }
                     else
                     {
@@ -269,9 +305,17 @@ int main(int argc, char **argv)
                         {
                             encode_send(windows[i].seqNum, sendbuffer, msgbuffer, 0, msgSize);
                         }
+                        gettimeofday(&windows[i].sendTime, NULL);
                     }
                 }
             }
         }
+        free(whole_filename);
+        free(recvbuffer);
+        free(sendbuffer);
+        free(filebuffer);
+        free(msgbuffer);
+        free(window);
+        fclose(fp);
     }
 }
