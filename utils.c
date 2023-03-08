@@ -37,7 +37,7 @@ void encode_ACK(int seqNum, int error, char *ack_buff)
     return;
 }
 
-int decode_ACK(char *buf, int len, *int seqNum)
+int decode_ACK(char *buf, int len, int* seqNum)
 {
     /* Reasoning: UDP itself is used for tranfering long msgs,
     therefore we dont care */
@@ -62,19 +62,19 @@ int decode_ACK(char *buf, int len, *int seqNum)
     }
 }
 
-void encode_send(int seqNum, char *send_buff, char *msg, int EOF, int size)
+void encode_send(int seqNum, char *send_buff, char *msg, int eof, int size)
 {
     /*
     int size;
     int seqNum;
-    int EOF;
+    int eof;
     char* msg;
     int checkSum;
     */
 
     *((int *)send_buff) = htonl(size + 16);
     *((int *)send_buff + 1) = htonl(seqNum);
-    *((int *)send_buff + 2) = htonl(EOF);
+    *((int *)send_buff + 2) = htonl(eof);
     *((char *)((int *)send_buff + 3)) = *msg;
     int checkSum = checksum(send_buff, 12 + size);
     *((int *)send_buff + size + 12) = htonl(checkSum);
@@ -84,25 +84,25 @@ void encode_send(int seqNum, char *send_buff, char *msg, int EOF, int size)
 int decode_send(char *buf, int len, int *seqNum, char *msg, int *msgSize)
 {
 
-    int size = ntol(*(int *)buf);
+    int size = ntohl(*(int *)buf);
     // Check Size is  correct
     if (size != len)
         return -1;
 
-    int checkSum = ntol(buf + size - 4);
+    int checkSum = ntohl(*(buf + size - 4));
     // CheckSum Exam
     if (checkSum != checksum(buf, size - 4))
-        return -1;
+        return -2;
 
     // Copy MSG and its length
     *msg = *(buf + 12);
     *msgSize = size - 16;
 
     // set seqNum
-    int seqnum = ntol(*((int *)buf + 1));
+    int seqnum = ntohl(*((int *)buf + 1));
     *seqNum = seqnum;
 
-    // Return EOF
-    int EOF = ntol(*((int *)buf + 2));
-    return EOF;
+    // Return eof
+    int eof = ntohl(*((int *)buf + 2));
+    return eof;
 }

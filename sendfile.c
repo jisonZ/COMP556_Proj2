@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/time.h>
+#define PKT_SIZE 1024
 
 #include "utils.c"
 
@@ -17,17 +18,17 @@ struct packet
     int buffPos;
     int ack;
     int send;
-    timeval sendTime;
+    struct timeval sendTime;
 };
 
 int main(int argc, char **argv)
 {
 
     char *recv_host = NULL;
-    char *recv_port = NULL;
+    char *server_port = NULL;
     char *subdir = NULL;
     char *filename = NULL;
-    char whole_filename[100]
+    char whole_filename[100];
 
     int opt;
     while ((opt = getopt(argc, argv, "r:f:")) != -1) {
@@ -35,7 +36,7 @@ int main(int argc, char **argv)
             case 'r':
                 // Extract the receiver host and port from the -r argument
                 recv_host = strtok(optarg, ":");
-                recv_port = strtok(NULL, ":");
+                server_port = strtok(NULL, ":");
                 break;
             case 'f':
                 // Extract the filename and subdirectory from the -f argument
@@ -49,13 +50,13 @@ int main(int argc, char **argv)
     }
 
     // Verify that all required arguments were provided
-    if (recv_host == NULL || recv_port == NULL || subdir == NULL || filename == NULL) {
+    if (recv_host == NULL || server_port == NULL || subdir == NULL || filename == NULL) {
         printf("Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>\n");
         return 1;
     }
 
     // Print out the parsed arguments
-    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\n", recv_host, recv_port, subdir, filename);
+    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\n", recv_host, server_port, subdir, filename);
 
 
 
@@ -128,7 +129,7 @@ int main(int argc, char **argv)
         abort();
     }
 
-    packet *window = (packet *)malloc(WINDOW_LEN * sizeof(packet));
+    struct packet *window = (struct packet *)malloc(WINDOW_LEN * sizeof(struct packet));
     if (!window)
     {
         perror("fail to allocate window buffer\n");
@@ -141,7 +142,7 @@ int main(int argc, char **argv)
     fd_set write_set;
     int max;
 
-    timeval time_out;
+    struct timeval time_out;
     time_out.tv_usec = 1e5;
     time_out.tv_sec = 0;
 
@@ -152,7 +153,7 @@ int main(int argc, char **argv)
 
     int seq_num = 0;
 
-    bool EOF = false;
+    int eof = 0;
 
     int buff_pos = 0;
         
@@ -161,14 +162,14 @@ int main(int argc, char **argv)
         struct packet p;
         p.seqNum = seq_num;
         p.buffPos = buff_pos;
-        p.ack = false;
-        p.send = false;
+        p.ack = 0;
+        p.send = 0;
         window[i] = p;
         seq_num++;
         buff_pos++;
     }
     
-    while (!EOF)
+    while (!eof)
     {
         /* read from file to buffer */
         int bufferSize = fread(filebuffer, 1, MAX_BUFF * PKT_SIZE, fp);
@@ -176,7 +177,7 @@ int main(int argc, char **argv)
         // Is End of file?
         if (bufferSize < MAX_BUFF * PKT_SIZE)
         {
-            EOF = true;
+            eof = 1;
         }else{
             fseek(fp, bufferSize, SEEK_CUR);
         }
@@ -220,11 +221,11 @@ int main(int argc, char **argv)
                     {
                         if (ack_status == -2)
                         {
-                            window[window_pos].send = false;
+                            window[window_pos].send = 0;
                         }
                         else if (ack_status == 0)
                         {
-                            window[ack_num - first_window_seq].ack = true;
+                            window[ack_num - first_window_seq].ack = 1;
                         }
                     }
                     // if (FD_ISSET(sock, &write_set)) {
@@ -290,22 +291,22 @@ int main(int argc, char **argv)
                         int msgSize;
                         if (bufferCount * PKT_SIZE > bufferSize)
                         {
-                            msgSize = bufferSize - (bufferCount - 1) * PKTSIZE;
+                            msgSize = bufferSize - (bufferCount - 1) * PKT_SIZE;
                         }
                         else
                         {
-                            msgSize = PKTSIZE;
+                            msgSize = PKT_SIZE;
                         }
-                        if (EOF && window[i].buffPos == bufferCount - 1)
+                        if (eof && window[i].buffPos == bufferCount - 1)
                         {
                             /* send EOF in packet */
-                            encode_send(windows[i].seqNum, sendbuffer, msgbuffer, 1, msgSize);
+                            encode_send(window[i].seqNum, sendbuffer, msgbuffer, 1, msgSize);
                         }
                         else
                         {
-                            encode_send(windows[i].seqNum, sendbuffer, msgbuffer, 0, msgSize);
+                            encode_send(window[i].seqNum, sendbuffer, msgbuffer, 0, msgSize);
                         }
-                        gettimeofday(&windows[i].sendTime, NULL);
+                        gettimeofday(&window[i].sendTime, NULL);
                     }
                 }
             }

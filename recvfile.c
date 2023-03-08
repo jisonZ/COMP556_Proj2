@@ -8,19 +8,26 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <sys/time.h>
+#include <sys/select.h>
+#define ACK_LEN 12
 #include "utils.c"
 
 struct packet {
-    int seqNum;
+    int seq_num;
     int buffPos;
     int ack;
-}
+    int error;
+};
 
 int main(int argc, char **argv)
 {
     struct sockaddr_in sin, addr;
 
     int recv_port = -1;
+
+    char* filename = "tempfile";
+    FILE* fp = fopen(filename, "w");
 
     int opt;
     while ((opt = getopt(argc, argv, "p:")) != -1) {
@@ -59,7 +66,7 @@ int main(int argc, char **argv)
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons(server_port);
+    sin.sin_port = htons(recv_port);
 
     /* bind server socket to the address */
     if (bind(sock, (struct sockaddr *)&sin, sizeof(sin)) < 0)
@@ -68,16 +75,13 @@ int main(int argc, char **argv)
         abort();
     }
 
-    /* variables for select */
-    struct timeval time_out;
-    // int select_retval;
+    struct timeval sock_time_out;
+    sock_time_out.tv_usec = 1e5;
+    sock_time_out.tv_sec = 0;
 
-    time_out.tv_sec = 1;
-    time_out.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&sock_time_out, sizeof sock_time_out);
 
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&time_out, sizeof time_out);
-
-    FILE *fp;
+    //FILE *fp;
     long file_size;  // TODO: extract file size?
 
     /* ----- allocate buffer ----- */
@@ -108,7 +112,7 @@ int main(int argc, char **argv)
     }
 
     /* ----- allocate window ----- */
-    packet* window = (packet *)malloc(WINDOW_LEN);
+    struct packet* window = (struct packet *)malloc(WINDOW_LEN);
     if (!window) {
         perror("failed to allocate window\n");
         abort();
@@ -122,7 +126,7 @@ int main(int argc, char **argv)
 
     fd_set read_set;
     int max;
-    timeval time_out;
+    struct timeval time_out;
     time_out.tv_usec = 1e5;
     time_out.tv_sec = 0;
 
@@ -133,9 +137,10 @@ int main(int argc, char **argv)
         // initialize window
         for (int i = 0; i < WINDOW_LEN; ++i) {
             struct packet p;
-            p.seqNum = lSeqNum++;
+            p.seq_num = lSeqNum++;
             p.buffPos = lBuffPos++;
-            p.ack = false;
+            p.ack = 0;
+            p.error = 0;
             window[i] = p;
         }
         
@@ -157,14 +162,34 @@ int main(int argc, char **argv)
                     int recvLen = recv(sock, recvbuffer, RECV_LEN, 0);
                     int seq_num;
                     int msg_size;
-                    int eof = decode_send(recvbuffer, recvLen, &seq_num, msg, &msg_size);
-                    if (seq_num >= window[0].seq_num && seq_num < window[0]+WINDOW_LEN) {
-                        int curWindowIdx = seq_num - window[0].seq_num
-                        window[curWindowIdx].ack = 1;
-                        *(filebuffer + window[curWindowIdx].buffPos*PKT_SIZE) = *msg;
-                    } else if (seq_num < window[0].seq_num) {
-                        /* TODO: send ack */
-                    }
+                    int recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size);
+                    if (recv_done != -1){ /* This means we have received a packet with garbage length, just ignored it*/
+                        int error_bit = (recv_done == -2 ? 1 : 0);
+                        if (seq_num >= window[0].seq_num && seq_num < window[0].seq_num+WINDOW_LEN) {
+                            int curWindowIdx = seq_num - window[0].seq_num;
+                            window[curWindowIdx].ack = 1;
+                            window[curWindowIdx].error = error_bit;
+
+
+                            // MSG field = msg  + checksum
+                            // we need to split it with checksum
+                            char * msg_to_write = (char *)malloc(msg_size);
+                            strncpy(msg_to_write, msgbuffer, msg_size);
+                            if (strlen(filebuffer) >= MAX_BUFF * PKT_SIZE) {
+                                size_t writen_size = fwrite(filebuffer, 1, MAX_BUFF * PKT_SIZE, fp);
+                                fseek(fp, writen_size, SEEK_CUR);
+                                memset(filebuffer, 0, writen_size);
+                            }
+                            *(filebuffer + window[curWindowIdx].buffPos*PKT_SIZE) = *msg_to_write;
+                            
+                            free(msg_to_write);
+                        } else if (seq_num < window[0].seq_num) {
+                            /* TODO: send ack */
+                            // Send it in case send file always send
+                            encode_ACK(seq_num, error_bit, ackbuffer);
+                            send(sock, ackbuffer, ACK_LEN, 0);
+                        }
+                    }  
                 }
             }
 
@@ -183,18 +208,23 @@ int main(int argc, char **argv)
                 window[i-shift] = window[i];
             }
             for (int i = WINDOW_LEN-shift; i < WINDOW_LEN; ++i) {
-                window[i].seqNum = lSeqNum++;
-                window[i].buffPos = lBufPos++;
+                window[i].seq_num = lSeqNum++;
+                window[i].buffPos = lBuffPos++;
                 window[i].ack = 0;
+                window[i].error = 0;
             }
 
             // send ack
             for (int i = 0; i < WINDOW_LEN; ++i) {
                 if (!window[i].ack) {
                     /* send ack*/
+                    encode_ACK(window[i].seq_num, window[i].error, ackbuffer);
+                    send(sock, ackbuffer, ACK_LEN, 0);
                 }
             }
-
+            if (recv_done == 1){
+                return 0;
+            }
         }
     }
 
@@ -252,7 +282,10 @@ int main(int argc, char **argv)
         
 
     fclose(fp);
-    free(recv_buffer);
+    free(recvbuffer);
+    free(ackbuffer);
+    free(filebuffer);
+    free(msgbuffer);
     printf("[completed]\n");
     return 0;
 }
