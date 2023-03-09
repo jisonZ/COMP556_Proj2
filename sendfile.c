@@ -8,9 +8,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/time.h>
-#define PKT_SIZE 1024
-
-#include "utils.c"
+#include "utils.h"
 
 struct packet
 {
@@ -21,60 +19,88 @@ struct packet
     struct timeval sendTime;
 };
 
+int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y)
+{
+    /* Perform the carry for the later subtraction by updating y. */
+    if (x->tv_usec < y->tv_usec)
+    {
+        int nsec = (y->tv_usec - x->tv_usec) / 1000000 + 1;
+        y->tv_usec -= 1000000 * nsec;
+        y->tv_sec += nsec;
+    }
+    if (x->tv_usec - y->tv_usec > 1000000)
+    {
+        int nsec = (x->tv_usec - y->tv_usec) / 1000000;
+        y->tv_usec += 1000000 * nsec;
+        y->tv_sec -= nsec;
+    }
+
+    /* Compute the time remaining to wait.
+       tv_usec is certainly positive. */
+    result->tv_sec = x->tv_sec - y->tv_sec;
+    result->tv_usec = x->tv_usec - y->tv_usec;
+
+    /* Return 1 if result is negative. */
+    return x->tv_sec < y->tv_sec;
+}
+
 int main(int argc, char **argv)
 {
 
     char *recv_host = NULL;
-    char *server_port = NULL;
+    char *recv_port = NULL;
     char *subdir = NULL;
     char *filename = NULL;
     char whole_filename[100];
+    struct timeval timeout;
 
     int opt;
-    while ((opt = getopt(argc, argv, "r:f:")) != -1) {
-        switch (opt) {
-            case 'r':
-                // Extract the receiver host and port from the -r argument
-                recv_host = strtok(optarg, ":");
-                server_port = strtok(NULL, ":");
-                break;
-            case 'f':
-                // Extract the filename and subdirectory from the -f argument
-                subdir = strtok(optarg, "/");
-                filename = strtok(NULL, "/");
-                break;
-            default:
-                printf("Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>\n");
-                return 1;
+    while ((opt = getopt(argc, argv, "r:f:")) != -1)
+    {
+        switch (opt)
+        {
+        case 'r':
+            // Extract the receiver host and port from the -r argument
+            recv_host = strtok(optarg, ":");
+            recv_port = strtok(NULL, ":");
+            break;
+        case 'f':
+            // Extract the filename and subdirectory from the -f argument
+            strcpy(whole_filename, optarg);
+            subdir = strtok(optarg, "/");
+            filename = strtok(NULL, "/");
+            break;
+        default:
+            printf("Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>\n");
+            return 1;
         }
     }
 
     // Verify that all required arguments were provided
-    if (recv_host == NULL || server_port == NULL || subdir == NULL || filename == NULL) {
+    if (recv_host == NULL || recv_port == NULL || subdir == NULL || filename == NULL)
+    {
         printf("Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>\n");
         return 1;
     }
 
     // Print out the parsed arguments
-    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\n", recv_host, server_port, subdir, filename);
-
-
-
- 
-
-
-
+    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\nWhole FileName: %s\n", \ 
+    recv_host,
+           recv_port, subdir, filename, whole_filename);
 
     /* ------ identifying the server ------ */
     unsigned int server_addr;
-    struct sockaddr_in sin;
+    struct sockaddr_in sin, send_addr;
+
     struct addrinfo *getaddrinfo_result, hints;
 
     /* convert server domain name to IP address */
     memset(&hints, 0, sizeof(struct addrinfo));
+    memset(&sin, 0, sizeof(sin));
+    memset(&send_addr, 0, sizeof(send_addr));
     hints.ai_family = AF_INET; /* indicates we want IPv4 */
 
-    if (getaddrinfo(serverAddr, NULL, &hints, &getaddrinfo_result) == 0)
+    if (getaddrinfo(recv_host, NULL, &hints, &getaddrinfo_result) == 0)
     {
         server_addr = (unsigned int)((struct sockaddr_in *)(getaddrinfo_result->ai_addr))->sin_addr.s_addr;
         freeaddrinfo(getaddrinfo_result);
@@ -82,23 +108,24 @@ int main(int argc, char **argv)
 
     /* ----- initialize and connect socket ------ */
     int sock;
-    if ((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
+    if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
     {
         perror("Error opening UDP socket");
         abort();
     }
-    memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = server_addr;
-    sin.sin_port = htons(server_port);
+    sin.sin_port = htons(atoi(recv_port));
 
-    /* connect to the server */
-    if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-    {
-        perror("connect to server failed");
+
+    send_addr.sin_family = AF_INET;
+    send_addr.sin_addr.s_addr = INADDR_ANY; 
+    send_addr.sin_port = htons(0);
+
+    if (bind(sock, (struct sockaddr *)&send_addr, sizeof(send_addr)) < 0){
+        perror("Error binding UDP socket");
         abort();
     }
-    printf("Client is Connected\n");
 
     /* ----- create buffer ----- */
     char *filebuffer = (char *)malloc(MAX_BUFF * PKT_SIZE);
@@ -122,13 +149,6 @@ int main(int argc, char **argv)
         abort();
     }
 
-    char *msgbuffer = (char *)malloc(PKT_SIZE);
-    if (!msgbuffer)
-    {
-        perror("failed to allocate msg buffer\n");
-        abort();
-    }
-
     struct packet *window = (struct packet *)malloc(WINDOW_LEN * sizeof(struct packet));
     if (!window)
     {
@@ -136,10 +156,9 @@ int main(int argc, char **argv)
         abort();
     }
 
-
     /* ----- send file ----- */
     fd_set read_set;
-    fd_set write_set;
+    // fd_set write_set;
     int max;
 
     struct timeval time_out;
@@ -155,38 +174,41 @@ int main(int argc, char **argv)
 
     int eof = 0;
 
-    int buff_pos = 0;
-        
-    for (int i = 0; i < WINDOW_LEN; ++i)
-    {
-        struct packet p;
-        p.seqNum = seq_num;
-        p.buffPos = buff_pos;
-        p.ack = 0;
-        p.send = 0;
-        window[i] = p;
-        seq_num++;
-        buff_pos++;
-    }
-    
+    socklen_t sin_addr_size;
+
     while (!eof)
     {
+        printf("New 1MB buffer\n");
         /* read from file to buffer */
         int bufferSize = fread(filebuffer, 1, MAX_BUFF * PKT_SIZE, fp);
+        printf("Buffer Size = %d\n",bufferSize);
+
+        int buff_pos = 0;
 
         // Is End of file?
         if (bufferSize < MAX_BUFF * PKT_SIZE)
         {
             eof = 1;
-        }else{
+        }
+        else
+        {
             fseek(fp, bufferSize, SEEK_CUR);
         }
         /* implement bufferSize/PKT_SIZE, EOF signal*/
-        int bufferCount = bufferSize /= PKT_SIZE;
+        int bufferCount = bufferSize / PKT_SIZE + 1;
 
         /* initialize window */
-        
-
+        for (int i = 0; i < WINDOW_LEN; ++i)
+        {
+            struct packet p;
+            p.seqNum = seq_num;
+            p.buffPos = buff_pos;
+            p.ack = 0;
+            p.send = 0;
+            window[i] = p;
+            seq_num++;
+            buff_pos++;
+        }
         /* send buffer */
         while (1)
         {
@@ -210,13 +232,15 @@ int main(int argc, char **argv)
                 if (FD_ISSET(sock, &read_set))
                 {
                     /* take ACK */
-                    int recvLen = recv(sock, recvbuffer, RECV_LEN, 0); // Ack
+                    int recvLen = recvfrom(sock, recvbuffer, RECV_LEN, MSG_WAITALL, (struct sock*)&sin, &sin_addr_size); // Ack
                     int ack_num;
                     int ack_status = decode_ACK(recvbuffer, recvLen, &ack_num);
 
                     int first_window_seq = window[0].seqNum;
                     int last_window_seq = window[WINDOW_LEN - 1].seqNum;
                     int window_pos = ack_num - first_window_seq;
+                    printf("ackNum: %i, ackStatus: %i\n", ack_num, ack_status);
+
                     if (ack_num >= first_window_seq || ack_num <= last_window_seq)
                     {
                         if (ack_status == -2)
@@ -228,95 +252,109 @@ int main(int argc, char **argv)
                             window[ack_num - first_window_seq].ack = 1;
                         }
                     }
-                    // if (FD_ISSET(sock, &write_set)) {
-                    //     /* continue unsuccessful write */
-                    //     /* might be too complicated to implement,
-                    //     alternative is to wait till all of the message is sent */
-                    // }
                 }
+            }
+            // print window
+            for (int i = 0; i < WINDOW_LEN; ++i) {
+                printf("%i:%i ", window[i].seqNum, window[i].ack);
+            }
+            printf("\n");
 
-                /* detect window shift */
-                int shift = 0;
-                for (int i = 0; i < WINDOW_LEN; ++i)
+            /* detect window shift */
+            int shift = 0;
+            for (int i = 0; i < WINDOW_LEN; ++i)
+            {
+                if (window[i].ack)
                 {
-                    if (window[i].ack)
-                    {
-                        ++shift;
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    ++shift;
                 }
-                if (shift != 0)
-                {
-                    /* move window */
-                    for (int i = 0; i < WINDOW_LEN - shift; ++i)
-                    {
-                        window[i] = window[i + shift];
-                    }
-
-                    /* reset rest of window */
-                    for (int i = WINDOW_LEN - shift; i < WINDOW_LEN; ++i)
-                    {
-                        struct packet p;
-                        p.seqNum = seq_num;
-                        p.buffPos = buff_pos;
-                        p.ack = false;
-                        p.send = false;
-                        window[i] = p;
-                        seq_num++;
-                        buff_pos++;
-                    }
-                }
-
-                /* detect if all item been sent*/
-                if (window[0].buffPos > bufferCount)
+                else
                 {
                     break;
                 }
-
-                /* send frames */
-                for (int i = 0; i < WINDOW_LEN; ++i)
+            }
+            if (shift != 0)
+            {
+                /* move window */
+                for (int i = 0; i < WINDOW_LEN - shift; ++i)
                 {
-                    struct timeval current_time;
-                    gettimeofday(&current_time, NULL);
+                    window[i] = window[i + shift];
+                }
 
-                    if (!window[i].send ||
-                        (!window[i].ack && current_time - window[i].sendTime > TIME_OUT))
+                /* reset rest of window */
+                for (int i = WINDOW_LEN - shift; i < WINDOW_LEN; ++i)
+                {
+                    struct packet p;
+                    p.seqNum = seq_num;
+                    p.buffPos = buff_pos;
+                    p.ack = 0;
+                    p.send = 0;
+                    window[i] = p;
+                    seq_num++;
+                    buff_pos++;
+                }
+            }
+            
+
+            /* detect if all item been sent*/
+            if (window[0].buffPos >= bufferCount)
+            {
+                break;
+            }
+
+            /* send frames */
+            for (int i = 0; i < WINDOW_LEN; ++i)
+            {
+                
+                struct timeval current_time;
+                gettimeofday(&current_time, NULL);
+                timeval_subtract(&timeout, &current_time, &window[i].sendTime);
+                
+                if (window[i].buffPos > bufferCount - 1) {
+                    break;
+                }
+
+                if (!window[i].send ||
+                    (!window[i].ack && timeout.tv_sec > TIME_OUT))
+                {
+                    /* fully send message */
+                    // send(sock, window[i].buffPos, 0);
+                    
+                    char* msgbuffer = filebuffer + window[i].buffPos * PKT_SIZE;
+                    int msgSize;
+                    if (bufferCount * PKT_SIZE > bufferSize)
                     {
-                        /* fully send message */
-                        // send(sock, window[i].buffPos, 0);
-                        msgbuffer = filebuffer + window[i].buffPos * PKT_SIZE;
-                        int msgSize;
-                        if (bufferCount * PKT_SIZE > bufferSize)
-                        {
-                            msgSize = bufferSize - (bufferCount - 1) * PKT_SIZE;
-                        }
-                        else
-                        {
-                            msgSize = PKT_SIZE;
-                        }
-                        if (eof && window[i].buffPos == bufferCount - 1)
-                        {
-                            /* send EOF in packet */
-                            encode_send(window[i].seqNum, sendbuffer, msgbuffer, 1, msgSize);
-                        }
-                        else
-                        {
-                            encode_send(window[i].seqNum, sendbuffer, msgbuffer, 0, msgSize);
-                        }
-                        gettimeofday(&window[i].sendTime, NULL);
+                        msgSize = bufferSize - (bufferCount - 1) * PKT_SIZE;
                     }
+                    else
+                    {
+                        msgSize = PKT_SIZE;
+                    }
+                    printf("%i, %i, %i\n", eof, window[i].buffPos, bufferCount);
+                    if (eof && window[i].buffPos == bufferCount - 1)
+                    {
+                        /* send EOF in packet */
+                        printf("send eof\n");
+                        encode_send(window[i].seqNum, sendbuffer, msgbuffer, 1, msgSize);
+                    }
+                    else
+                    {
+                        encode_send(window[i].seqNum, sendbuffer, msgbuffer, 0, msgSize);
+                        //printf("Here2!\n");
+                    }
+                    // int sendCount = send(sock, sendbuffer, msgSize+16, 0);
+                    int sendCount = sendto(sock, sendbuffer, msgSize+16, 0, 
+                                (const struct sockaddr *) &sin, sizeof(sin));
+
+                    // printf("send %i B\n", sendCount);
+                    gettimeofday(&window[i].sendTime, NULL);
                 }
             }
         }
-        free(whole_filename);
-        free(recvbuffer);
-        free(sendbuffer);
-        free(filebuffer);
-        free(msgbuffer);
-        free(window);
-        fclose(fp);
+        memset(filebuffer, 0, MAX_BUFF*PKT_SIZE);
     }
+    free(recvbuffer);
+    free(sendbuffer);
+    free(filebuffer);
+    fclose(fp);
 }

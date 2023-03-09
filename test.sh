@@ -1,1 +1,3 @@
-./a.out -f asd/sad -r df:dsa 
+make clean
+make
+./send -r 127.0.0.1:2080 -f ./test.txt 

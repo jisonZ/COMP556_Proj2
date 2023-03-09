@@ -10,8 +10,7 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <sys/select.h>
-#define ACK_LEN 12
-#include "utils.c"
+#include "utils.h"
 
 struct packet {
     int seq_num;
@@ -22,7 +21,7 @@ struct packet {
 
 int main(int argc, char **argv)
 {
-    struct sockaddr_in sin, addr;
+    struct sockaddr_in sin, send_addr;
 
     int recv_port = -1;
 
@@ -76,7 +75,7 @@ int main(int argc, char **argv)
     }
 
     struct timeval sock_time_out;
-    sock_time_out.tv_usec = 1e5;
+    sock_time_out.tv_usec = 0;
     sock_time_out.tv_sec = 0;
 
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&sock_time_out, sizeof sock_time_out);
@@ -112,7 +111,7 @@ int main(int argc, char **argv)
     }
 
     /* ----- allocate window ----- */
-    struct packet* window = (struct packet *)malloc(WINDOW_LEN);
+    struct packet* window = (struct packet *)malloc(WINDOW_LEN*sizeof(struct packet));
     if (!window) {
         perror("failed to allocate window\n");
         abort();
@@ -127,13 +126,16 @@ int main(int argc, char **argv)
     fd_set read_set;
     int max;
     struct timeval time_out;
-    time_out.tv_usec = 1e5;
+    time_out.tv_usec = 0;
     time_out.tv_sec = 0;
 
     int lSeqNum = 0;
-    int lBuffPos = 0;
+    socklen_t send_addr_len;
 
-    while (!recv_done) {
+    while (recv_done != 1) {
+        int lBuffPos = 0;
+        int buffSize = 0;
+
         // initialize window
         for (int i = 0; i < WINDOW_LEN; ++i) {
             struct packet p;
@@ -159,35 +161,48 @@ int main(int argc, char **argv)
             if (select_retval > 0) {
                 // TODO: delete this
                 if (FD_ISSET(sock, &read_set)) {
-                    int recvLen = recv(sock, recvbuffer, RECV_LEN, 0);
+                    //int recvLen = recv(sock, recvbuffer, RECV_LEN, 0);
+                    int recvLen = recvfrom(sock, (char *)recvbuffer, RECV_LEN, 
+                    MSG_WAITALL, (struct sockaddr *) &send_addr, &send_addr_len);
+                    // printf("recving %i Byte\n", recvLen);
+
                     int seq_num;
                     int msg_size;
-                    int recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size);
+                    recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size);
+                    
                     if (recv_done != -1){ /* This means we have received a packet with garbage length, just ignored it*/
+                        
                         int error_bit = (recv_done == -2 ? 1 : 0);
                         if (seq_num >= window[0].seq_num && seq_num < window[0].seq_num+WINDOW_LEN) {
                             int curWindowIdx = seq_num - window[0].seq_num;
-                            window[curWindowIdx].ack = 1;
-                            window[curWindowIdx].error = error_bit;
 
+                            // send ACK 
+                            printf("seq: %i, error: %i, eof: %i\n", window[curWindowIdx].seq_num, error_bit, recv_done);
+                            encode_ACK(window[curWindowIdx].seq_num, error_bit, ackbuffer);
+                            sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
 
+                            if (!error_bit) {
+                                window[curWindowIdx].ack = 1;
+                            }
+                            // window[curWindowIdx].error = error_bit;
+                            
                             // MSG field = msg  + checksum
                             // we need to split it with checksum
                             char * msg_to_write = (char *)malloc(msg_size);
-                            strncpy(msg_to_write, msgbuffer, msg_size);
-                            if (strlen(filebuffer) >= MAX_BUFF * PKT_SIZE) {
-                                size_t writen_size = fwrite(filebuffer, 1, MAX_BUFF * PKT_SIZE, fp);
-                                fseek(fp, writen_size, SEEK_CUR);
-                                memset(filebuffer, 0, writen_size);
+                            memcpy(msg_to_write, msgbuffer, msg_size);
+                            strncpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
+                            buffSize += msg_size;
+                            printf("File Buffer is %s\n", msg_to_write);
+                            // if EOF recived, break
+                            if (recv_done == 1 || buffSize >= MAX_BUFF*PKT_SIZE) {
+                                printf("recv done: %i, buffSize: %i\n", recv_done, buffSize);
+                                break;
                             }
-                            *(filebuffer + window[curWindowIdx].buffPos*PKT_SIZE) = *msg_to_write;
-                            
-                            free(msg_to_write);
+
                         } else if (seq_num < window[0].seq_num) {
-                            /* TODO: send ack */
                             // Send it in case send file always send
                             encode_ACK(seq_num, error_bit, ackbuffer);
-                            send(sock, ackbuffer, ACK_LEN, 0);
+                            sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                         }
                     }  
                 }
@@ -213,74 +228,14 @@ int main(int argc, char **argv)
                 window[i].ack = 0;
                 window[i].error = 0;
             }
-
-            // send ack
-            for (int i = 0; i < WINDOW_LEN; ++i) {
-                if (!window[i].ack) {
-                    /* send ack*/
-                    encode_ACK(window[i].seq_num, window[i].error, ackbuffer);
-                    send(sock, ackbuffer, ACK_LEN, 0);
-                }
-            }
-            if (recv_done == 1){
-                return 0;
-            }
         }
-    }
-
-
-
-    // while (1)
-    // {
-    //     int recv_packet_size = recvfrom(sock, recv_buffer, PKT_SIZE, 0, (struct sockaddr *)&addr, &addr_len);
-    //     if (recv_packet_size < 0)
-    //     {
-    //         break;
-    //     }
-
-    //     int eof = decode_send(recv_buffer, recv_packet_size, &seq_num, msg, &msg_size);
-
-    //     // corrupt packet
-    //     if (eof == -1)
-    //     {
-    //         printf("[recv corrupt packet]\n");
-    //         free(recv_buffer);
-
-    //         // still send ack, set error flag
-    //         encode_ACK(seq_num, 1, ack_buffer);
-    //         int send_packet_size = sendto(sock, ack_buffer, 12, 0, (const struct sockaddr *)&addr, sizeof(addr));
-    //         if (send_packet_size < 0)
-    //         {
-    //             printf("send error \n");
-    //             abort();
-    //         }
-    //         continue;
-    //     }
-
-    //     int recv_seq_num = recv_buffer[??];
-    //     msg_size = ? ? ;
-
-    //     if (recv_seq_num == seq_num + 1)  
-    //     { // in order packet
-    //         printf("[recv data] %d %d ACCEPTED(in-order)\n", total_data_size, msg_size);
-    //         seq_num = recv_seq_num;
-    //         total_data_size += msg_size;
-    //     } // duplicate packet
-    //     else if (recv_seq_num == seq_num)
-    //     {   
-    //         printf("[recv data] %d %d IGNORED\n", total_data_size, msg_size);
-    //         free(recv_buffer);
-
-    //     } // out of order packet
-    //     else
-    //     {
-    //         printf("[recv data] %d %d ACCEPTED(out-of-order)\n", total_data_size, msg_size);
-    //         // TODO: handle out of order packet
-    //     }
-
-    // }
-        
-
+        printf("done write to file: %i %s\n", recv_done, filebuffer);
+        // write to file
+        size_t writen_size = fwrite(filebuffer, 1, buffSize, fp);
+        fseek(fp, writen_size, SEEK_CUR);
+        memset(filebuffer, 0, writen_size);
+                            
+    } // While Recv Done
     fclose(fp);
     free(recvbuffer);
     free(ackbuffer);
@@ -288,4 +243,5 @@ int main(int argc, char **argv)
     free(msgbuffer);
     printf("[completed]\n");
     return 0;
+    /* TODO: timeout at the end*/
 }
