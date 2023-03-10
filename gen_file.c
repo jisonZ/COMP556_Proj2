@@ -5,6 +5,7 @@ int main(int argc, char** argv)
 {
     char* fname = "test.txt";
     int fsize;
+    int i;
 
     if (argc != 2) {
         perror("Usage: ./gen_file <size in MB>");
@@ -16,7 +17,7 @@ int main(int argc, char** argv)
 
     FILE* fp;
     fp = fopen(fname, "w");
-    for (int i = 0; i < fsize; ++i) {
+    for (i = 0; i < fsize; ++i) {
         char randomChar = 'A' + (random() % 26);
         fprintf(fp, "%c", randomChar);
     }
