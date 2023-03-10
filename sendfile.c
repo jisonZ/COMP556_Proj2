@@ -262,8 +262,9 @@ int main(int argc, char **argv)
                 }
             }
             //print window
+            printf("Before shift: ");
             for (i = 0; i < WINDOW_LEN; ++i) {
-                printf("Before shift: %i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
+                printf("%i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
             }
             printf("\n");
 
@@ -301,8 +302,9 @@ int main(int argc, char **argv)
             }
             
             // print window
+            printf("After shift: ");
             for (i = 0; i < WINDOW_LEN; ++i) {
-                printf("After shift: %i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
+                printf("%i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
             }
             printf("\n");
 
@@ -332,8 +334,8 @@ int main(int argc, char **argv)
                     
                     char* msgbuffer = filebuffer + window[i].buffPos * PKT_SIZE;
                     int msgSize;
-
-                    if (bufferCount * PKT_SIZE > bufferSize)
+                    
+                    if (window[i].buffPos >= bufferCount-1)
                     {
                         msgSize = bufferSize - (bufferCount - 1) * PKT_SIZE;
                     }
