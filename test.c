@@ -41,15 +41,27 @@ int main() {
     // t = fread(buffer, 1, 2, fp);
     // printf("%s\n", buffer);
     // printf("%d char read\n", t);
-    struct timeval* res = (struct timeval*)malloc(sizeof(struct timeval));;
-    struct timeval* first = (struct timeval*)malloc(sizeof(struct timeval));;
-    first->tv_sec = 0;
-    first->tv_usec = 0;
+    FILE* fp = fopen("test.txt", "r");
+    char* buffer = (char*)malloc(8);
+    size_t buffersize = 0;
+    buffersize = fread(buffer, 1, 8, fp);
+    printf("%s\n", buffer);
+    printf("%i char read\n", buffersize);
+    buffersize = fread(buffer, 1, 8, fp);
+    printf("%s\n", buffer);
+    printf("%i char read\n", buffersize);
+    buffersize = fread(buffer, 1, 8, fp);
+    printf("%s\n", buffer);
+    printf("%i char read\n", buffersize);
 
-    struct timeval* second = (struct timeval*)malloc(sizeof(struct timeval));;
-    second->tv_sec = 1;
-    second->tv_usec = 1;
+    while(buffersize = fread(buffer, 1, 8, fp) != 0 ){
+          printf("%s\n", buffer);
+          printf("%i char read\n", buffersize);
+          memset(buffer, 0, buffersize);
+          // fseek(fp, buffersize, SEEK_CUR);
+    }
+   
 
-    timeval_subtract(res, second, first);
-    printf("%i, %i\n", res->tv_sec, res->tv_usec);
+    fclose(fp);
+    return 0;
 }

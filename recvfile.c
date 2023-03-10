@@ -21,6 +21,7 @@ struct packet {
 
 int main(int argc, char **argv)
 {
+    int i;
     struct sockaddr_in sin, send_addr;
 
     int recv_port = -1;
@@ -130,14 +131,18 @@ int main(int argc, char **argv)
     time_out.tv_sec = 0;
 
     int lSeqNum = 0;
+    int largestAck_num = -1;
     socklen_t send_addr_len;
+    int totalpktCount = 0;
 
+    //TODO: timeout
     while (recv_done != 1) {
         int lBuffPos = 0;
         int buffSize = 0;
+        lSeqNum = largestAck_num+1;
 
         // initialize window
-        for (int i = 0; i < WINDOW_LEN; ++i) {
+        for (i = 0; i < WINDOW_LEN; ++i) {
             struct packet p;
             p.seq_num = lSeqNum++;
             p.buffPos = lBuffPos++;
@@ -178,21 +183,19 @@ int main(int argc, char **argv)
 
                             // send ACK 
                             printf("seq: %i, error: %i, eof: %i\n", window[curWindowIdx].seq_num, error_bit, recv_done);
+
                             encode_ACK(window[curWindowIdx].seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
 
                             if (!error_bit) {
                                 window[curWindowIdx].ack = 1;
+                                largestAck_num++;
                             }
-                            // window[curWindowIdx].error = error_bit;
-                            
-                            // MSG field = msg  + checksum
-                            // we need to split it with checksum
-                            char * msg_to_write = (char *)malloc(msg_size);
-                            memcpy(msg_to_write, msgbuffer, msg_size);
-                            strncpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
+
+                            memcpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
                             buffSize += msg_size;
-                            printf("File Buffer is %s\n", msg_to_write);
+                            totalpktCount++;
+                            
                             // if EOF recived, break
                             if (recv_done == 1 || buffSize >= MAX_BUFF*PKT_SIZE) {
                                 printf("recv done: %i, buffSize: %i\n", recv_done, buffSize);
@@ -204,13 +207,13 @@ int main(int argc, char **argv)
                             encode_ACK(seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                         }
-                    }  
+                    }
                 }
             }
 
             // shift window
             int shift = 0;
-            for (int i = 0; i < WINDOW_LEN; ++i) {
+            for (i = 0; i < WINDOW_LEN; ++i) {
                 if (window[i].ack) {
                     shift++;
                 } else {
@@ -219,23 +222,61 @@ int main(int argc, char **argv)
             }
 
             // shift not ack item to the front
-            for (int i = shift; i < WINDOW_LEN; ++i) {
+            
+            for (i = shift; i < WINDOW_LEN; ++i) {
                 window[i-shift] = window[i];
             }
-            for (int i = WINDOW_LEN-shift; i < WINDOW_LEN; ++i) {
+            for (i = WINDOW_LEN-shift; i < WINDOW_LEN; ++i) {
                 window[i].seq_num = lSeqNum++;
                 window[i].buffPos = lBuffPos++;
                 window[i].ack = 0;
                 window[i].error = 0;
             }
         }
-        printf("done write to file: %i %s\n", recv_done, filebuffer);
+        // printf("done write to file: %i %s\n", recv_done, filebuffer);
         // write to file
         size_t writen_size = fwrite(filebuffer, 1, buffSize, fp);
-        fseek(fp, writen_size, SEEK_CUR);
+        // fseek(fp, writen_size, SEEK_CUR);
         memset(filebuffer, 0, writen_size);
                             
     } // While Recv Done
+
+    // print total recived file length
+    fseek(fp, 0L, SEEK_END);
+    int sz = ftell(fp);
+    printf("written size %d\n", sz);
+    printf("written pkt %d\n", totalpktCount);
+    // Timeout with ACK
+    while (1) {
+        // initialize select()
+        FD_ZERO(&read_set);
+        FD_SET(sock, &read_set);
+        max = sock;
+        int select_retval = select(max+1, &read_set, NULL, NULL, &time_out);
+        if (select_retval < 0) {
+            perror("select failed\n");
+            abort();
+        }
+
+        // recv and store packet 
+        if (select_retval > 0) {
+            // TODO: delete this
+            if (FD_ISSET(sock, &read_set)) {
+                //int recvLen = recv(sock, recvbuffer, RECV_LEN, 0);
+                int recvLen = recvfrom(sock, (char *)recvbuffer, RECV_LEN, 
+                MSG_WAITALL, (struct sockaddr *) &send_addr, &send_addr_len);
+                // printf("recving %i Byte\n", recvLen);
+
+                int seq_num;
+                int msg_size;
+                recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size);
+                
+                encode_ACK(seq_num, 0, ackbuffer);
+                sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
+            }
+        }
+    }
+
     fclose(fp);
     free(recvbuffer);
     free(ackbuffer);

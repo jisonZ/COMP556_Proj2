@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <math.h>
 
 #define MAX_BUFF 1000
 #define PKT_SIZE 1024
