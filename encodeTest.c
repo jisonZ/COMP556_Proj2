@@ -4,15 +4,8 @@
 
 int main() {
     // test send 
-    int RECV_LEN = 12;
-    char *recvbuffer = (char *)malloc(RECV_LEN);
-    if (!recvbuffer)
-    {
-        perror("failed to allocate recv buffer\n");
-        abort();
-    }
 
-    int SEND_LEN = PKT_SIZE + 16;
+    int SEND_LEN = PKT_SIZE + FNAME_LEN + DIRNAME_LEN;
     char *sendbuffer = (char *)malloc(SEND_LEN);
     if (!sendbuffer)
     {
@@ -26,14 +19,35 @@ int main() {
         abort();
     }
 
+    // char *dirbuffer = (char *)malloc(DIRNAME_LEN);
+    // if (!dirbuffer) {
+    //     perror("failed to allocate msg buffer\n");
+    //     abort();
+    // }
+
+    // char *fnamebuffer = (char *)malloc(FNAME_LEN);
+    // if (!fnamebuffer) {
+    //     perror("failed to allocate msg buffer\n");
+    //     abort();
+    // }
+
+    char dirbuffer[DIRNAME_LEN];
+    char fnamebuffer[FNAME_LEN];
+
     char testsend[] = "helloWorldnishishabi";
+    char testfname[] = "fname";
+    char testdir[] = "dirname";
+    
     int seqnum = 5;
-    encode_send(seqnum, sendbuffer, testsend, 1, 20);
+    encode_send(sendbuffer, seqnum, 1, testfname, testdir, testsend, 20);
     int getseq;
     int msgSize;
-    int res = decode_send(sendbuffer, 20+16, &getseq, msgbuffer, &msgSize);
+    int res = decode_send(sendbuffer, 20+16+FNAME_LEN+DIRNAME_LEN, &getseq, msgbuffer, &msgSize, dirbuffer, fnamebuffer);
     printf("%i\n", res);
     printf("%s\n", msgbuffer);
     printf("%i\n", msgSize);
     printf("%i\n", getseq);    
+    printf("%s\n", fnamebuffer);
+    printf("%s\n", dirbuffer);
+
 }

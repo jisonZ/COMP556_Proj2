@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <string.h>
 
 
 int timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y)
@@ -42,25 +45,30 @@ int main() {
     // printf("%s\n", buffer);
     // printf("%d char read\n", t);
     FILE* fp = fopen("test.txt", "r");
-    char* buffer = (char*)malloc(8);
-    size_t buffersize = 0;
-    buffersize = fread(buffer, 1, 8, fp);
-    printf("%s\n", buffer);
-    printf("%i char read\n", buffersize);
-    buffersize = fread(buffer, 1, 8, fp);
-    printf("%s\n", buffer);
-    printf("%i char read\n", buffersize);
-    buffersize = fread(buffer, 1, 8, fp);
-    printf("%s\n", buffer);
-    printf("%i char read\n", buffersize);
+    int isFileCreated = 0;
+    char * subdir = ".";
+    char * fileName = "test.txt";
+    struct stat st;
+    memset(&st, 0, sizeof(st));
+    if (stat(subdir, &st) == -1) {
+      char *dir;
+      printf("-- Creating new directory %s...\n", subdir);
+      dir = strdup(subdir);
+      mkdir(dir, 0777);
+      free(dir);
+  }
 
-    while(buffersize = fread(buffer, 1, 8, fp) != 0 ){
-          printf("%s\n", buffer);
-          printf("%i char read\n", buffersize);
-          memset(buffer, 0, buffersize);
-          // fseek(fp, buffersize, SEEK_CUR);
-    }
-   
+  if (!isFileCreated) {
+      printf("-- Creating file %s...\n", fileName);
+      char * target_file_name;
+      target_file_name = strdup(subdir);
+      strcat(target_file_name, "/");
+      strcat(target_file_name, fileName);
+      fp = fopen(target_file_name, "w");
+      isFileCreated = 1;
+      fwrite(target_file_name, 1, strlen(fileName) + 2, fp);
+      free(target_file_name);
+  }
 
     fclose(fp);
     return 0;

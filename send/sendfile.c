@@ -8,7 +8,9 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/time.h>
-#include "utils.h"
+#include <getopt.h>
+#include "../utils.h"
+
 struct packet
 {
     int seqNum;
@@ -17,31 +19,6 @@ struct packet
     int send;
     struct timeval sendTime;
 };
-
-int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y)
-{
-    /* Perform the carry for the later subtraction by updating y. */
-    if (x->tv_usec < y->tv_usec)
-    {
-        int nsec = (y->tv_usec - x->tv_usec) / 1000000 + 1;
-        y->tv_usec -= 1000000 * nsec;
-        y->tv_sec += nsec;
-    }
-    if (x->tv_usec - y->tv_usec > 1000000)
-    {
-        int nsec = (x->tv_usec - y->tv_usec) / 1000000;
-        y->tv_usec += 1000000 * nsec;
-        y->tv_sec -= nsec;
-    }
-
-    /* Compute the time remaining to wait.
-       tv_usec is certainly positive. */
-    result->tv_sec = x->tv_sec - y->tv_sec;
-    result->tv_usec = x->tv_usec - y->tv_usec;
-
-    /* Return 1 if result is negative. */
-    return x->tv_sec < y->tv_sec;
-}
 
 int main(int argc, char **argv)
 {
@@ -141,7 +118,7 @@ int main(int argc, char **argv)
         perror("failed to allocate recv buffer\n");
         abort();
     }
-    int SEND_LEN = PKT_SIZE + 16;
+    int SEND_LEN = PKT_SIZE + FNAME_LEN + DIRNAME_LEN + 16;
     char *sendbuffer = (char *)malloc(SEND_LEN);
     if (!sendbuffer)
     {
@@ -334,7 +311,7 @@ int main(int argc, char **argv)
                     
                     char* msgbuffer = filebuffer + window[i].buffPos * PKT_SIZE;
                     int msgSize;
-                    
+
                     if (window[i].buffPos >= bufferCount-1)
                     {
                         msgSize = bufferSize - (bufferCount - 1) * PKT_SIZE;
@@ -347,16 +324,18 @@ int main(int argc, char **argv)
                     if (eof && window[i].buffPos == bufferCount - 1)
                     {
                         /* send EOF in packet */
-                        encode_send(window[i].seqNum, sendbuffer, msgbuffer, 1, msgSize);
+                        printf("send eof\n");
+                        encode_send( sendbuffer, window[i].seqNum, 1, filename, subdir, msgbuffer, msgSize);
                     }
                     else
                     {
-                        encode_send(window[i].seqNum, sendbuffer, msgbuffer, 0, msgSize);
+                        encode_send( sendbuffer, window[i].seqNum, 0, filename, subdir, msgbuffer, msgSize);
                     }
                     // int sendCount = send(sock, sendbuffer, msgSize+16, 0);
                     printf("msgSize: %i\n", msgSize);
-                    int sendCount = sendto(sock, sendbuffer, msgSize+16, 0, 
+                    int sendCount = sendto(sock, sendbuffer, 16+msgSize+FNAME_LEN+DIRNAME_LEN, 0, 
                                 (const struct sockaddr *) &sin, sizeof(sin));
+                    printf("[send data] start : %d\n", sendCount);
                     printf("send %i B\n", sendCount);
                     gettimeofday(&window[i].sendTime, NULL);
                 }
