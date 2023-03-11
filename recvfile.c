@@ -12,7 +12,7 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <getopt.h>
-#include "../utils.h"
+#include "utils.h"
 
 struct packet {
     int seq_num;
@@ -228,9 +228,9 @@ int main(int argc, char **argv)
                                 }
                                 int is_ordered = seq_num == window[0].seq_num;
                                 if (is_ordered)
-                                    printf("[recv data] %d %d ACCEPTED - in-order\n", num_of_filebuffer_have_writen * 1024000 + window[curWindowIdx].buffPos * PKT_SIZE, msg_size);
+                                    printf("[recv data] %d %d ACCEPTED (in-order)\n", num_of_filebuffer_have_writen * 1024000 + window[curWindowIdx].buffPos * PKT_SIZE, msg_size);
                                 else
-                                    printf("[recv data] %d %d ACCEPTED - out-of-order\n", num_of_filebuffer_have_writen * 1024000 + window[curWindowIdx].buffPos * PKT_SIZE, msg_size);
+                                    printf("[recv data] %d %d ACCEPTED (out-of-order)\n", num_of_filebuffer_have_writen * 1024000 + window[curWindowIdx].buffPos * PKT_SIZE, msg_size);
                                 memcpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
                                 buffSize += msg_size;
                                 totalpktCount++;
@@ -242,12 +242,12 @@ int main(int argc, char **argv)
                         } else if ((seq_num < window[0].seq_num && seq_num >= 0)) {
                             // Send it in case send file always send
                             // printf("[recv data] start %d IGNORED. \n", recvLen);
-                            printf("[recv data] %d %d IGNORED\n", seq_num * PKT_SIZE, msg_size);
+                            printf("[recv data] %d (%d) IGNORED\n", seq_num * PKT_SIZE, msg_size);
                             encode_ACK(seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                             
                         }else{
-                            printf("[recv data] %d %d IGNORED\n", seq_num * PKT_SIZE, msg_size);
+                            printf("[recv data] %d (%d) IGNORED\n", seq_num * PKT_SIZE, msg_size);
                         }
                     }
                 }
