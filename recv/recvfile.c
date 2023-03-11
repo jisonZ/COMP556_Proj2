@@ -124,6 +124,8 @@ int main(int argc, char **argv)
     time_out.tv_sec = 0;
 
     int lSeqNum = 0;
+    int recvDoneSeq = -1;
+
     int largestAck_num = -1;
     socklen_t send_addr_len;
     int totalpktCount = 0;
@@ -171,40 +173,21 @@ int main(int argc, char **argv)
                     int seq_num;
                     int msg_size;
                     recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size, subdir, filename);
+                    
+                    if (recv_done) {
+                        recvDoneSeq = seq_num;
+                    }
                     // printf("recving %i Msg Byte\n", msg_size);
                     // printf("recv_done:%i, seqnum:%i\n", recv_done, seq_num);
 
-                    struct stat st;
-                    memset(&st, 0, sizeof(struct stat));
-                    
-                    if (stat(subdir, &st) == -1) {
-                        char *dir;
-                        printf("-- Creating new directory %s...\n", subdir);
-                        dir = strdup(subdir);
-                        mkdir(dir, 0777);
-                        free(dir);
-                    }
-
-                    if (!isFileCreated) {
-                        printf("-- Creating file %s...\n", filename);
-                        char * target_file_name;
-                        target_file_name = strdup(subdir);
-                        strcat(target_file_name, "/");
-                        strcat(target_file_name, filename);
-                        fp = fopen(target_file_name, "w");
-                        isFileCreated = 1;
-                        free(target_file_name);
-                    }
-
-                    if (recv_done == -2 || recv_done == -1) {
-                        // printf("recv corrupt packet\n", recvLen);
-                    }
-
-                    if (recv_done != -1){ /* This means we have received a packet with garbage length, just ignored it*/
+                    if (recv_done != -1 ){ /* This means we have received a packet with garbage length, just ignored it*/
                         
                         int error_bit = (recv_done == -2 ? 1 : 0);
+                        // printf("WINDOW CHECK: seq: %i, error: %i, recv_done: %i\n", seq_num, error_bit, recv_done);
+
                         if (seq_num >= window[0].seq_num && seq_num < window[0].seq_num+WINDOW_LEN && window[seq_num-window[0].seq_num].ack == 0) {
-                            printf("[recv data] start %d ACCPETED", recvLen);
+                            
+                            printf("[recv data] %d ACCPETED. ", recvLen);
                             int curWindowIdx = seq_num - window[0].seq_num;
 
                             // send ACK 
@@ -213,24 +196,41 @@ int main(int argc, char **argv)
                             encode_ACK(window[curWindowIdx].seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
 
-                            if (!error_bit) {
+                            if (error_bit == 0) {
                                 window[curWindowIdx].ack = 1;
                                 largestAck_num++;
+
+                                struct stat st;
+                                memset(&st, 0, sizeof(struct stat));
+                                
+                                if (stat(subdir, &st) == -1) {
+                                    char *dir;
+                                    printf("-- Creating new directory %s\n", subdir);
+                                    dir = strdup(subdir);
+                                    mkdir(dir, 0777);
+                                    free(dir);
+                                }
+
+                                if (!isFileCreated) {
+                                    printf("-- Creating file %s\n", filename);
+                                    char * target_file_name;
+                                    target_file_name = strdup(subdir);
+                                    strcat(target_file_name, "/");
+                                    strcat(target_file_name, filename);
+                                    fp = fopen(target_file_name, "w");
+                                    isFileCreated = 1;
+                                    free(target_file_name);
+                                }
                             }
 
                             memcpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
                             buffSize += msg_size;
                             totalpktCount++;
-                            
-                            // if EOF recived, break
-                            if (recv_done == 1 || buffSize >= MAX_BUFF*PKT_SIZE) {
-                                printf("recv done: %i, buffSize: %i\n", recv_done, buffSize);
-                                break;
-                            }
+                        
 
-                        } else if (seq_num < window[0].seq_num || window[seq_num-window[0].seq_num].ack == 1) {
+                        } else if ((seq_num < window[0].seq_num && seq_num >= 0)) {
                             // Send it in case send file always send
-                            // printf("[recv data] start %d IGNORED", recvLen);
+                            // printf("[recv data] start %d IGNORED. \n", recvLen);
                             encode_ACK(seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                             
@@ -259,6 +259,24 @@ int main(int argc, char **argv)
                 window[i].buffPos = lBuffPos++;
                 window[i].ack = 0;
                 window[i].error = 0;
+            }
+
+            //print window
+            // for (i = 0; i < WINDOW_LEN; ++i) {
+            //     printf("%i ", window[i].seq_num);
+            // }
+            // printf("\n");
+
+            // if EOF: break if window[0].buffPos >= EOF position
+            // if not EOF: break if window[0].buffPos >= MAX_LEN
+            if (recv_done) {
+                if (window[0].seq_num > recvDoneSeq) {
+                    break;
+                }
+            } else {
+                if (window[0].buffPos >= MAX_BUFF) {
+                    break;
+                }
             }
         }
         // printf("done write to file: %i %s\n", recv_done, filebuffer);
