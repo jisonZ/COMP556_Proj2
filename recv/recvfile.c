@@ -171,8 +171,8 @@ int main(int argc, char **argv)
                     int seq_num;
                     int msg_size;
                     recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size, subdir, filename);
-                    printf("recving %i Msg Byte\n", msg_size);
-                    printf("recv_done:%i, seqnum:%i\n", recv_done, seq_num);
+                    // printf("recving %i Msg Byte\n", msg_size);
+                    // printf("recv_done:%i, seqnum:%i\n", recv_done, seq_num);
 
                     struct stat st;
                     memset(&st, 0, sizeof(struct stat));
@@ -195,13 +195,15 @@ int main(int argc, char **argv)
                         isFileCreated = 1;
                         free(target_file_name);
                     }
+
                     if (recv_done == -2 || recv_done == -1) {
-                        printf("recv corrupt packet\n", recvLen);
+                        // printf("recv corrupt packet\n", recvLen);
                     }
+
                     if (recv_done != -1){ /* This means we have received a packet with garbage length, just ignored it*/
                         
                         int error_bit = (recv_done == -2 ? 1 : 0);
-                        if (seq_num >= window[0].seq_num && seq_num < window[0].seq_num+WINDOW_LEN) {
+                        if (seq_num >= window[0].seq_num && seq_num < window[0].seq_num+WINDOW_LEN && window[seq_num-window[0].seq_num].ack == 0) {
                             printf("[recv data] start %d ACCPETED", recvLen);
                             int curWindowIdx = seq_num - window[0].seq_num;
 
@@ -226,9 +228,9 @@ int main(int argc, char **argv)
                                 break;
                             }
 
-                        } else if (seq_num < window[0].seq_num) {
+                        } else if (seq_num < window[0].seq_num || window[seq_num-window[0].seq_num].ack == 1) {
                             // Send it in case send file always send
-                            printf("[recv data] start %d IGNORED", recvLen);
+                            // printf("[recv data] start %d IGNORED", recvLen);
                             encode_ACK(seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                             
