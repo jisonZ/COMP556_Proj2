@@ -59,9 +59,7 @@ int main(int argc, char **argv)
     }
 
     // Print out the parsed arguments
-    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\nWhole FileName: %s\n", \ 
-    recv_host,
-           recv_port, subdir, filename, whole_filename);
+    printf("Receiver host: %s\nReceiver port: %s\nSubdirectory: %s\nFilename: %s\nWhole FileName: %s\n", recv_host, recv_port, subdir, filename, whole_filename);
 
     /* ------ identifying the server ------ */
     unsigned int server_addr;
@@ -151,6 +149,7 @@ int main(int argc, char **argv)
     int eof = 0;
 
     socklen_t sin_addr_size;
+    int num_of_filebuffer_have_sent = 0;
 
     //TODO: timeout!
     while (!eof)
@@ -174,9 +173,9 @@ int main(int argc, char **argv)
         }
         /* implement bufferSize/PKT_SIZE, EOF signal*/
         double t = (double) bufferSize / PKT_SIZE;
-        printf("bufferCount= %f\n",t);
+        //printf("bufferCount= %f\n",t);
         int bufferCount = (int)ceil(t);
-        printf("bufferCount= %d\n",bufferCount);
+        //printf("bufferCount= %d\n",bufferCount);
 
         seq_num = largest_ack+1;
         /* initialize window */
@@ -218,7 +217,7 @@ int main(int argc, char **argv)
                     int ack_status = decode_ACK(recvbuffer, recvLen, &ack_num);
 			
                     int window_pos = ack_num - window[0].seqNum;
-                    printf("ackNum: %i, ackStatus: %i\n", ack_num, ack_status);
+                   // printf("ackNum: %i, ackStatus: %i\n", ack_num, ack_status);
 
                     if ((window_pos >= 0 && window_pos < WINDOW_LEN) && window[window_pos].ack == 0)
                     {
@@ -232,17 +231,17 @@ int main(int argc, char **argv)
                             largest_ack = largest_ack > ack_num ? largest_ack : ack_num;
                         }
                     } else {
-			printf("pkt: %i dropped\n");	
+			//printf("pkt: %i dropped\n");	
 		    }
 		    
                 }
             }
             //print window
-            printf("Before shift: ");
-            for (i = 0; i < WINDOW_LEN; ++i) {
-                printf("%i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
-            }
-            printf("\n");
+            // printf("Before shift: ");
+            // for (i = 0; i < WINDOW_LEN; ++i) {
+            //     printf("%i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
+            // }
+            // printf("\n");
 
             /* detect window shift */
             int shift = 0;
@@ -278,11 +277,11 @@ int main(int argc, char **argv)
             }
             
             // print window
-            printf("After shift: ");
-            for (i = 0; i < WINDOW_LEN; ++i) {
-                printf("%i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
-            }
-            printf("\n");
+            // printf("After shift: ");
+            // for (i = 0; i < WINDOW_LEN; ++i) {
+            //     printf("%i:%i:%i ", window[i].seqNum, window[i].ack, window[i].buffPos);
+            // }
+            // printf("\n");
 
             /* detect if all item been sent*/
             if (window[0].buffPos >= bufferCount)
@@ -323,7 +322,7 @@ int main(int argc, char **argv)
                     if (eof && window[i].buffPos == bufferCount - 1)
                     {
                         /* send EOF in packet */
-                        printf("send eof\n");
+                        // printf("send eof\n");
                         encode_send( sendbuffer, window[i].seqNum, 1, filename, subdir, msgbuffer, msgSize);
                     }
                     else
@@ -331,19 +330,21 @@ int main(int argc, char **argv)
                         encode_send( sendbuffer, window[i].seqNum, 0, filename, subdir, msgbuffer, msgSize);
                     }
                     // int sendCount = send(sock, sendbuffer, msgSize+16, 0);
-                    printf("msgSize: %i\n", msgSize);
-                    int sendCount = sendto(sock, sendbuffer, 16+msgSize+FNAME_LEN+DIRNAME_LEN, 0, 
+                    // printf("msgSize: %i\n", msgSize);
+                    sendto(sock, sendbuffer, 16+msgSize+FNAME_LEN+DIRNAME_LEN, 0, 
                                 (const struct sockaddr *) &sin, sizeof(sin));
-                    printf("[send data] start : %d\n", sendCount);
-                    printf("send %i B\n", sendCount);
+                    printf("[send data] %d  %d\n", msgSize ,num_of_filebuffer_have_sent * 1024 + window[i].buffPos * PKT_SIZE);
+                    // printf("send %i B\n", sendCount);
                     gettimeofday(&window[i].sendTime, NULL);
                 }
             }
         }
+        num_of_filebuffer_have_sent ++;
         memset(filebuffer, 0, MAX_BUFF*PKT_SIZE);
     }
     free(recvbuffer);
     free(sendbuffer);
     free(filebuffer);
     fclose(fp);
+    return 0;
 }

@@ -133,7 +133,8 @@ int main(int argc, char **argv)
     char filename[FNAME_LEN];
     int isFileCreated = 0;
     FILE *fp;
-    printf("Begin to receive data\n");
+    int num_of_filebuffer_have_writen;
+    // printf("Begin to receive data\n");
 
     //TODO: timeout
     while (recv_done != 1) {
@@ -174,24 +175,27 @@ int main(int argc, char **argv)
                     int msg_size;
                     recv_done = decode_send(recvbuffer, recvLen, &seq_num, msgbuffer, &msg_size, subdir, filename);
                     
-                    if (recv_done) {
+                    if (recv_done == 1) {
                         recvDoneSeq = seq_num;
+                    }else if (recv_done == -1 || recv_done == -2){
+                        printf("[recv corrupt packet]\n");
                     }
+
                     // printf("recving %i Msg Byte\n", msg_size);
                     // printf("recv_done:%i, seqnum:%i\n", recv_done, seq_num);
 
-                    if (recv_done != -1 ){ /* This means we have received a packet with garbage length, just ignored it*/
+                    if (recv_done >= 0){ /* This means we have received a packet with garbage length, just ignored it*/
                         
                         int error_bit = (recv_done == -2 ? 1 : 0);
                         // printf("WINDOW CHECK: seq: %i, error: %i, recv_done: %i\n", seq_num, error_bit, recv_done);
 
                         if (seq_num >= window[0].seq_num && seq_num < window[0].seq_num+WINDOW_LEN && window[seq_num-window[0].seq_num].ack == 0) {
                             
-                            printf("[recv data] %d ACCPETED. ", recvLen);
+                            // printf("[recv data] %d ACCPETED. ", recvLen);
                             int curWindowIdx = seq_num - window[0].seq_num;
 
                             // send ACK 
-                            printf("seq: %i, error: %i, recv_done: %i\n", window[curWindowIdx].seq_num, error_bit, recv_done);
+                            //printf("seq: %i, error: %i, recv_done: %i\n", window[curWindowIdx].seq_num, error_bit, recv_done);
 
                             encode_ACK(window[curWindowIdx].seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
@@ -221,19 +225,28 @@ int main(int argc, char **argv)
                                     isFileCreated = 1;
                                     free(target_file_name);
                                 }
+                                int is_ordered = seq_num == window[0].seq_num;
+                                if (is_ordered)
+                                    printf("[recv data] %d %d ACCEPTED - in-order\n", num_of_filebuffer_have_writen * 1024000 + window[curWindowIdx].buffPos * PKT_SIZE, msg_size);
+                                else
+                                    printf("[recv data] %d %d ACCEPTED - out-of-order\n", num_of_filebuffer_have_writen * 1024000 + window[curWindowIdx].buffPos * PKT_SIZE, msg_size);
+                                memcpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
+                                buffSize += msg_size;
+                                totalpktCount++;
+
                             }
 
-                            memcpy(filebuffer+window[curWindowIdx].buffPos*PKT_SIZE, msgbuffer, msg_size);                 
-                            buffSize += msg_size;
-                            totalpktCount++;
-                        
+                            
 
                         } else if ((seq_num < window[0].seq_num && seq_num >= 0)) {
                             // Send it in case send file always send
                             // printf("[recv data] start %d IGNORED. \n", recvLen);
+                            printf("[recv data] %d %d IGNORED\n", num_of_filebuffer_have_writen * 1024000, msg_size);
                             encode_ACK(seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                             
+                        }else{
+                            printf("[recv data] %d %d IGNORED\n", num_of_filebuffer_have_writen * 1024000, msg_size);
                         }
                     }
                 }
@@ -254,6 +267,7 @@ int main(int argc, char **argv)
             for (i = shift; i < WINDOW_LEN; ++i) {
                 window[i-shift] = window[i];
             }
+
             for (i = WINDOW_LEN-shift; i < WINDOW_LEN; ++i) {
                 window[i].seq_num = lSeqNum++;
                 window[i].buffPos = lBuffPos++;
@@ -270,7 +284,7 @@ int main(int argc, char **argv)
             // if EOF: break if window[0].buffPos >= EOF position
             // if not EOF: break if window[0].buffPos >= MAX_LEN
             if (recv_done) {
-                if (window[0].seq_num > recvDoneSeq) {
+                if (recvDoneSeq != -1 && window[0].seq_num > recvDoneSeq) {
                     break;
                 }
             } else {
@@ -281,17 +295,19 @@ int main(int argc, char **argv)
         }
         // printf("done write to file: %i %s\n", recv_done, filebuffer);
         // write to file
+        // printf("Write to file: %i\n", buffSize);
         size_t writen_size = fwrite(filebuffer, 1, buffSize, fp);
         // fseek(fp, writen_size, SEEK_CUR);
         memset(filebuffer, 0, writen_size);
+        num_of_filebuffer_have_writen ++;
                             
     } // While Recv Done
 
     // print total recived file length
-    fseek(fp, 0L, SEEK_END);
-    int sz = ftell(fp);
-    printf("written size %d\n", sz);
-    printf("written pkt %d\n", totalpktCount);
+    //fseek(fp, 0L, SEEK_END);
+    //int sz = ftell(fp);
+    // printf("written size %d\n", sz);
+    // printf("written pkt %d\n", totalpktCount);
     struct timeval begin_time, end_time, result;
     gettimeofday(&begin_time, NULL);
     // Timeout with ACK
@@ -329,6 +345,7 @@ int main(int argc, char **argv)
                 
                 encode_ACK(seq_num, 0, ackbuffer);
                 sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
+                //printf("Received Last Data Packet");
             }
         }
     }
