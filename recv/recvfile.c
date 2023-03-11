@@ -221,6 +221,7 @@ int main(int argc, char **argv)
                                     target_file_name = strdup(subdir);
                                     strcat(target_file_name, "/");
                                     strcat(target_file_name, filename);
+                                    strcat(target_file_name, ".recv");
                                     fp = fopen(target_file_name, "w");
                                     isFileCreated = 1;
                                     free(target_file_name);
