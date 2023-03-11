@@ -242,12 +242,12 @@ int main(int argc, char **argv)
                         } else if ((seq_num < window[0].seq_num && seq_num >= 0)) {
                             // Send it in case send file always send
                             // printf("[recv data] start %d IGNORED. \n", recvLen);
-                            printf("[recv data] %d %d IGNORED\n", num_of_filebuffer_have_writen * 1024000, msg_size);
+                            printf("[recv data] %d %d IGNORED\n", seq_num * PKT_SIZE, msg_size);
                             encode_ACK(seq_num, error_bit, ackbuffer);
                             sendto(sock, ackbuffer, SEND_LEN, 0, (const struct sockaddr *)&send_addr, send_addr_len);
                             
                         }else{
-                            printf("[recv data] %d %d IGNORED\n", num_of_filebuffer_have_writen * 1024000, msg_size);
+                            printf("[recv data] %d %d IGNORED\n", seq_num * PKT_SIZE, msg_size);
                         }
                     }
                 }
