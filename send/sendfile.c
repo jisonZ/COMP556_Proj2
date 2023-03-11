@@ -1,5 +1,3 @@
-#include <stdlib.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
@@ -218,13 +216,11 @@ int main(int argc, char **argv)
                     int recvLen = recvfrom(sock, recvbuffer, RECV_LEN, MSG_WAITALL, (struct sock*)&sin, &sin_addr_size); // Ack
                     int ack_num;
                     int ack_status = decode_ACK(recvbuffer, recvLen, &ack_num);
-
-                    int first_window_seq = window[0].seqNum;
-                    int last_window_seq = window[WINDOW_LEN - 1].seqNum;
-                    int window_pos = ack_num - first_window_seq;
+			
+                    int window_pos = ack_num - window[0].seqNum;
                     printf("ackNum: %i, ackStatus: %i\n", ack_num, ack_status);
 
-                    if (ack_num >= first_window_seq || ack_num <= last_window_seq)
+                    if ((window_pos >= 0 && window_pos < WINDOW_LEN) && window[window_pos].ack == 0)
                     {
                         if (ack_status == -2)
                         {
@@ -232,10 +228,13 @@ int main(int argc, char **argv)
                         }
                         else if (ack_status == 0)
                         {
-                            window[ack_num - first_window_seq].ack = 1;
+                            window[window_pos].ack = 1;
                             largest_ack = largest_ack > ack_num ? largest_ack : ack_num;
                         }
-                    }
+                    } else {
+			printf("pkt: %i dropped\n");	
+		    }
+		    
                 }
             }
             //print window
