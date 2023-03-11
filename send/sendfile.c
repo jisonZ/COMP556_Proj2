@@ -333,7 +333,7 @@ int main(int argc, char **argv)
                     // printf("msgSize: %i\n", msgSize);
                     sendto(sock, sendbuffer, 16+msgSize+FNAME_LEN+DIRNAME_LEN, 0, 
                                 (const struct sockaddr *) &sin, sizeof(sin));
-                    printf("[send data] %d  %d\n", num_of_filebuffer_have_sent * 1024 + window[i].buffPos * PKT_SIZE, msg_size);
+                    printf("[send data] %d  %d\n", num_of_filebuffer_have_sent * 1024 + window[i].buffPos * PKT_SIZE, msgSize);
                     // printf("send %i B\n", sendCount);
                     gettimeofday(&window[i].sendTime, NULL);
                 }

@@ -11,11 +11,10 @@ gen_file: ./send/gen_file.c
 	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o ./send/gen_file.out ./send/gen_file.c $(LDFLAGS)
 
 recvf: ./recv/recvfile.c utils.h
-	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o ./recv/recv.out ./recv/recvfile.c utils.h $(LDFLAGS)
+	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o ./recv/recvfile ./recv/recvfile.c utils.h $(LDFLAGS)
 
 sendf: ./send/sendfile.c utils.h
-	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o ./send/send.out ./send/sendfile.c utils.h $(LDFLAGS)
-	
+	$(CC) $(DEFS) $(CFLAGS) $(LIB) -o ./send/sendfile ./send/sendfile.c utils.h $(LDFLAGS)
 
 
 clean:
